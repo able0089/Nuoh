@@ -26,12 +26,23 @@ const client = new Client({
 
 const TARGET_USER_ID = '716390085896962058';
 const TRIGGER_WORDS = ['Rare ping:', 'Regional ping:', 'Shiny hunt pings:'];
+const OWNER_ID = '1396815034247806999';
+const ADMIN_ROLE_ID = '1458127515280343173';
+
+// Helper function to check if user is admin or owner
+function isAuthorized(message) {
+    if (message.author.id === OWNER_ID) return true;
+    if (message.member && message.member.roles.cache.has(ADMIN_ROLE_ID)) return true;
+    return false;
+}
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot && message.author.id === client.user.id) return;
 
     // Command to ignore channels: d!ignorechannels #channel1 #channel2
     if (message.content.startsWith('d!ignorechannels')) {
+        if (!isAuthorized(message)) return;
+        
         const mentions = message.mentions.channels;
         if (mentions.size === 0) return message.reply('Please mention at least one channel.');
         
@@ -41,6 +52,8 @@ client.on('messageCreate', async (message) => {
 
     // Command to add channels back: d!addchannels #channel1 #channel2
     if (message.content.startsWith('d!addchannels')) {
+        if (!isAuthorized(message)) return;
+
         const mentions = message.mentions.channels;
         if (mentions.size === 0) return message.reply('Please mention at least one channel.');
         
