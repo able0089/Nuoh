@@ -74,24 +74,28 @@ client.on('messageCreate', async (message) => {
 
     const botMention = `<@${client.user.id}>`;
     const botMentionNick = `<@!${client.user.id}>`;
-    const isMentioned = message.content.startsWith(botMention) || message.content.startsWith(botMentionNick);
+    
+    // Check if the message starts with a mention of the bot
+    const startsWithMention = message.content.startsWith(botMention) || message.content.startsWith(botMentionNick);
 
-    if (isMentioned) {
-        const commandBody = message.content.slice(isMentioned ? (message.content.startsWith(botMention) ? botMention.length : botMentionNick.length) : 0).trim();
+    if (startsWithMention) {
+        // Extract command by removing the mention
+        const mentionLength = message.content.startsWith(botMention) ? botMention.length : botMentionNick.length;
+        const commandBody = message.content.slice(mentionLength).trim();
         
         // Help command
         if (commandBody.toLowerCase() === 'help') {
             const helpEmbed = new EmbedBuilder()
                 .setTitle('Bot Commands Help')
-                .setDescription('List of available commands for admins and owner:')
+                .setDescription('List of available commands (mention the bot to use):')
                 .addFields(
-                    { name: '@bot monitor #channels', value: 'Start monitoring spawns in these channels.' },
-                    { name: '@bot ignore #channels', value: 'Stop monitoring spawns in these channels.' },
-                    { name: '@bot setbotoffline', value: 'Stop the bot from automatically locking spawns (Owner only).' },
-                    { name: '@bot setbotonline', value: 'Resume automatic spawn locking (Owner only).' },
-                    { name: '@bot lock channel | Rare ping', value: 'Manually trigger a Rare lock.' },
-                    { name: '@bot lock channel | Regional Spawn', value: 'Manually trigger a Regional lock.' },
-                    { name: '@bot lock channel | shinyhunt @user', value: 'Manually trigger a Shiny Hunt lock.' }
+                    { name: 'monitor #channels', value: 'Start monitoring spawns in these channels.' },
+                    { name: 'ignore #channels', value: 'Stop monitoring spawns in these channels.' },
+                    { name: 'setbotoffline', value: 'Stop the bot from automatically locking spawns (Owner only).' },
+                    { name: 'setbotonline', value: 'Resume automatic spawn locking (Owner only).' },
+                    { name: 'lock channel | Rare ping', value: 'Manually trigger a Rare lock.' },
+                    { name: 'lock channel | Regional Spawn', value: 'Manually trigger a Regional lock.' },
+                    { name: 'lock channel | shinyhunt @user', value: 'Manually trigger a Shiny Hunt lock.' }
                 )
                 .setColor(0x00FFFF);
             return message.reply({ embeds: [helpEmbed] });
@@ -129,7 +133,7 @@ client.on('messageCreate', async (message) => {
         if (commandBody.toLowerCase().startsWith('lock channel')) {
             if (!isAuthorized(message)) return;
             const parts = commandBody.split('|').map(p => p.trim());
-            if (parts.length < 2) return message.reply('Usage: @bot lock channel | [Rare ping / Regional Spawn / shinyhunt @user]');
+            if (parts.length < 2) return message.reply('Usage: [mention bot] lock channel | [Rare ping / Regional Spawn / shinyhunt @user]');
             
             const typeStr = parts[1].toLowerCase();
             if (typeStr.includes('rare')) {
