@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } from 'discord.js';
 import express from 'express';
 
 const app = express();
@@ -26,6 +26,7 @@ const client = new Client({
 const TARGET_USER_ID = '716390085896962058';
 const OWNER_ID = '1396815034247806999';
 const ADMIN_ROLE_ID = '1458127515280343173';
+const PREFIX = 'nu!';
 
 function isAuthorized(message) {
     if (message.author.id === OWNER_ID) return true;
@@ -33,7 +34,6 @@ function isAuthorized(message) {
     return false;
 }
 
-// Helper to parse time strings like 10s, 5m, 1h, 1d
 function parseTime(timeStr) {
     const match = timeStr.match(/^(\d+)([smhd])$/);
     if (!match) return null;
@@ -88,7 +88,6 @@ async function lockChannel(channel, type, pingedUserId = null) {
 
         const lockMessage = await channel.send({ embeds: [embed], components: [row] });
 
-        // Auto-unlock after 12 hours
         setTimeout(async () => {
             try {
                 const fetchedMsg = await channel.messages.fetch(lockMessage.id).catch(() => null);
@@ -104,7 +103,6 @@ async function lockChannel(channel, type, pingedUserId = null) {
             }
         }, 12 * 3600000);
 
-        // Reminder for shiny hunt after 11 hours
         if (type === 'shiny' && pingedUserId) {
             setTimeout(async () => {
                 try {
@@ -124,22 +122,35 @@ async function lockChannel(channel, type, pingedUserId = null) {
 }
 
 client.on('messageCreate', async (message) => {
-    if (message.author.id === client.user.id) return;
+    if (message.author.bot && message.author.id !== '716390085896962058' && !message.content.includes('ping:')) {
+        if (message.author.id === client.user.id) return;
+    }
 
     const botMention = `<@${client.user.id}>`;
     const botMentionNick = `<@!${client.user.id}>`;
-    const startsWithMention = message.content.startsWith(botMention) || message.content.startsWith(botMentionNick);
+    
+    let commandBody = '';
+    if (message.content.startsWith(botMention)) {
+        commandBody = message.content.slice(botMention.length).trim();
+    } else if (message.content.startsWith(botMentionNick)) {
+        commandBody = message.content.slice(botMentionNick.length).trim();
+    } else if (message.content.toLowerCase().startsWith(PREFIX)) {
+        commandBody = message.content.slice(PREFIX.length).trim();
+    }
 
-    if (startsWithMention) {
-        const mentionLength = message.content.startsWith(botMention) ? botMention.length : botMentionNick.length;
-        const commandBody = message.content.slice(mentionLength).trim();
+    if (commandBody) {
         const args = commandBody.split(/\s+/);
         const command = args[0].toLowerCase();
 
         if (command === 'help') {
-            const helpEmbed = new EmbedBuilder()
-                .setTitle('Bot Commands Help')
-                .setDescription('List of available commands (mention the bot to use):')
+            const page1 = new EmbedBuilder()
+                .setTitle('Hi, I am Nuoh!')
+                .setDescription(`I am WooperLand's spawn locking bot made by <@${OWNER_ID}>.\n\nI help manage spawns by locking channels when rare or shiny Pokémon appear, ensuring the right people get a chance to catch them.\n\n**Prefix:** \`${PREFIX}\` or mention me!`)
+                .setColor(0x00FFFF)
+                .setFooter({ text: 'Page 1/2 • Click below for commands' });
+
+            const page2 = new EmbedBuilder()
+                .setTitle('Nuoh Commands')
                 .addFields(
                     { name: 'monitor #channels', value: 'Start monitoring spawns in these channels.' },
                     { name: 'ignore #channels', value: 'Stop monitoring spawns in these channels.' },
@@ -150,14 +161,28 @@ client.on('messageCreate', async (message) => {
                     { name: 'lock channel | shinyhunt @user', value: 'Manually trigger a Shiny Hunt lock.' },
                     { name: 'remind <time> <reason>', value: 'Set a reminder (e.g., 10s, 5m, 1h).' }
                 )
-                .setColor(0x00FFFF);
-            return message.reply({ embeds: [helpEmbed] });
+                .setColor(0x00FFFF)
+                .setFooter({ text: 'Page 2/2' });
+
+            const row = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('help_page_1')
+                        .setLabel('About Me')
+                        .setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder()
+                        .setCustomId('help_page_2')
+                        .setLabel('Commands')
+                        .setStyle(ButtonStyle.Primary)
+                );
+
+            return message.reply({ embeds: [page1], components: [row] });
         }
 
         if (command === 'remind') {
             const timeStr = args[1];
             const reason = args.slice(2).join(' ');
-            if (!timeStr || !reason) return message.reply('Usage: @bot remind <time> <reason> (e.g., 10s, 5m)');
+            if (!timeStr || !reason) return message.reply(`Usage: ${PREFIX}remind <time> <reason> (e.g., 10s, 5m)`);
             const ms = parseTime(timeStr);
             if (!ms) return message.reply('Invalid time format. Use 10s, 5m, 1h, etc.');
             
@@ -211,7 +236,6 @@ client.on('messageCreate', async (message) => {
     }
 
     if (!isBotOffline && message.author.bot && !ignoredChannels.has(message.channel.id)) {
-        // Prioritize shiny hunt if both present
         if (message.content.includes('Shiny hunt pings:')) {
             const mention = message.mentions.users.first();
             await lockChannel(message.channel, 'shiny', mention?.id);
@@ -224,30 +248,69 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isButton()) return;
+    if (interaction.isButton()) {
+        if (interaction.customId.startsWith('unlock_spawn_')) {
+            const restrictedTo = interaction.customId.replace('unlock_spawn_', '');
+            const isOwner = interaction.user.id === OWNER_ID;
+            const isAdmin = interaction.member && interaction.member.roles.cache.has(ADMIN_ROLE_ID);
+            const isTargetUser = restrictedTo === 'any' || interaction.user.id === restrictedTo;
 
-    if (interaction.customId.startsWith('unlock_spawn_')) {
-        const restrictedTo = interaction.customId.replace('unlock_spawn_', '');
-        const isOwner = interaction.user.id === OWNER_ID;
-        const isAdmin = interaction.member && interaction.member.roles.cache.has(ADMIN_ROLE_ID);
-        const isTargetUser = restrictedTo === 'any' || interaction.user.id === restrictedTo;
+            if (!isOwner && !isAdmin && !isTargetUser) {
+                return interaction.reply({ content: 'Only pinged hunters can unlock', ephemeral: true });
+            }
 
-        if (!isOwner && !isAdmin && !isTargetUser) {
-            return interaction.reply({ content: 'Only pinged hunters can unlock', ephemeral: true });
-        }
+            try {
+                const channel = interaction.channel;
+                await channel.permissionOverwrites.edit(TARGET_USER_ID, { SendMessages: null });
+                
+                const disabledRow = new ActionRowBuilder()
+                    .addComponents(ButtonBuilder.from(interaction.message.components[0].components[0]).setDisabled(true));
 
-        try {
-            const channel = interaction.channel;
-            await channel.permissionOverwrites.edit(TARGET_USER_ID, { SendMessages: null });
-            
-            const disabledRow = new ActionRowBuilder()
-                .addComponents(ButtonBuilder.from(interaction.message.components[0].components[0]).setDisabled(true));
+                await interaction.update({ components: [disabledRow] });
+                await channel.send(`The spawn has been unlocked by <@${interaction.user.id}>`);
+            } catch (error) {
+                console.error('Error unlocking spawn:', error);
+                await interaction.reply({ content: 'Failed to unlock the spawn.', ephemeral: true });
+            }
+        } else if (interaction.customId.startsWith('help_page_')) {
+            const page1 = new EmbedBuilder()
+                .setTitle('Hi, I am Nuoh!')
+                .setDescription(`I am WooperLand's spawn locking bot made by <@${OWNER_ID}>.\n\nI help manage spawns by locking channels when rare or shiny Pokémon appear, ensuring the right people get a chance to catch them.\n\n**Prefix:** \`${PREFIX}\` or mention me!`)
+                .setColor(0x00FFFF)
+                .setFooter({ text: 'Page 1/2 • Click below for commands' });
 
-            await interaction.update({ components: [disabledRow] });
-            await channel.send(`The spawn has been unlocked by <@${interaction.user.id}>`);
-        } catch (error) {
-            console.error('Error unlocking spawn:', error);
-            await interaction.reply({ content: 'Failed to unlock the spawn.', ephemeral: true });
+            const page2 = new EmbedBuilder()
+                .setTitle('Nuoh Commands')
+                .addFields(
+                    { name: 'monitor #channels', value: 'Start monitoring spawns in these channels.' },
+                    { name: 'ignore #channels', value: 'Stop monitoring spawns in these channels.' },
+                    { name: 'setbotoffline', value: 'Stop automatic locking (Owner only).' },
+                    { name: 'setbotonline', value: 'Resume automatic locking (Owner only).' },
+                    { name: 'lock channel | Rare ping', value: 'Manually trigger a Rare lock.' },
+                    { name: 'lock channel | Regional Spawn', value: 'Manually trigger a Regional lock.' },
+                    { name: 'lock channel | shinyhunt @user', value: 'Manually trigger a Shiny Hunt lock.' },
+                    { name: 'remind <time> <reason>', value: 'Set a reminder (e.g., 10s, 5m, 1h).' }
+                )
+                .setColor(0x00FFFF)
+                .setFooter({ text: 'Page 2/2' });
+
+            const row = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('help_page_1')
+                        .setLabel('About Me')
+                        .setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder()
+                        .setCustomId('help_page_2')
+                        .setLabel('Commands')
+                        .setStyle(ButtonStyle.Primary)
+                );
+
+            if (interaction.customId === 'help_page_1') {
+                await interaction.update({ embeds: [page1], components: [row] });
+            } else {
+                await interaction.update({ embeds: [page2], components: [row] });
+            }
         }
     }
 });
