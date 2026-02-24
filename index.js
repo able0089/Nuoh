@@ -6,6 +6,9 @@ const PORT = process.env.PORT || 5000;
 
 let ignoredChannels = new Set();
 let isBotOffline = false;
+// simple in-memory storage for tags
+// Format: { name: { content: string, authorId: string } }
+let tags = new Map();
 
 app.get('/', (req, res) => {
     res.send('Bot is running');
@@ -122,9 +125,7 @@ async function lockChannel(channel, type, pingedUserId = null) {
 }
 
 client.on('messageCreate', async (message) => {
-    if (message.author.bot && message.author.id !== '716390085896962058' && !message.content.includes('ping:')) {
-        if (message.author.id === client.user.id) return;
-    }
+    if (message.author.id === client.user.id) return;
 
     const botMention = `<@${client.user.id}>`;
     const botMentionNick = `<@!${client.user.id}>`;
@@ -159,7 +160,12 @@ client.on('messageCreate', async (message) => {
                     { name: 'lock channel | Rare ping', value: 'Manually trigger a Rare lock.' },
                     { name: 'lock channel | Regional Spawn', value: 'Manually trigger a Regional lock.' },
                     { name: 'lock channel | shinyhunt @user', value: 'Manually trigger a Shiny Hunt lock.' },
-                    { name: 'remind <time> <reason>', value: 'Set a reminder (e.g., 10s, 5m, 1h).' }
+                    { name: 'remind <time> <reason>', value: 'Set a reminder (e.g., 10s, 5m, 1h).' },
+                    { name: 'tag create <name> | <content>', value: 'Create a new tag.' },
+                    { name: 'tag edit <name> | <content>', value: 'Edit an existing tag (Author/Owner only).' },
+                    { name: 'tag delete <name>', value: 'Delete a tag (Owner only).' },
+                    { name: 'tag info <name>', value: 'View tag creator info.' },
+                    { name: 'tag <name>', value: 'Display tag content.' }
                 )
                 .setColor(0x00FFFF)
                 .setFooter({ text: 'Page 2/2' });
@@ -176,51 +182,110 @@ client.on('messageCreate', async (message) => {
                         .setStyle(ButtonStyle.Primary)
                 );
 
-            return message.reply({ embeds: [page1], components: [row] });
+            return message.reply({ embeds: [page1], components: [row], allowedMentions: { repliedUser: false } });
+        }
+
+        if (command === 'tag') {
+            const subCommand = args[1]?.toLowerCase();
+            
+            if (subCommand === 'create') {
+                const rest = args.slice(2).join(' ');
+                const [tagName, ...contentParts] = rest.split('|').map(s => s.trim());
+                const content = contentParts.join('|').trim();
+                
+                if (!tagName || !content) return message.reply({ content: `Usage: ${PREFIX}tag create <name> | <content>`, allowedMentions: { repliedUser: false } });
+                if (tags.has(tagName)) return message.reply({ content: `A tag with name \`${tagName}\` already exists.`, allowedMentions: { repliedUser: false } });
+                
+                tags.set(tagName, { content, authorId: message.author.id });
+                return message.reply({ content: `Tag \`${tagName}\` created!`, allowedMentions: { repliedUser: false } });
+            }
+            
+            if (subCommand === 'edit') {
+                const rest = args.slice(2).join(' ');
+                const [tagName, ...contentParts] = rest.split('|').map(s => s.trim());
+                const content = contentParts.join('|').trim();
+                
+                if (!tagName || !content) return message.reply({ content: `Usage: ${PREFIX}tag edit <name> | <content>`, allowedMentions: { repliedUser: false } });
+                const tag = tags.get(tagName);
+                if (!tag) return message.reply({ content: `Tag not found: \`${tagName}\``, allowedMentions: { repliedUser: false } });
+                
+                if (tag.authorId !== message.author.id && message.author.id !== OWNER_ID) {
+                    return message.reply({ content: 'You don\'t have permissions to run this command', allowedMentions: { repliedUser: false } });
+                }
+                
+                tags.set(tagName, { ...tag, content });
+                return message.reply({ content: `Tag \`${tagName}\` updated!`, allowedMentions: { repliedUser: false } });
+            }
+            
+            if (subCommand === 'delete') {
+                if (message.author.id !== OWNER_ID) return message.reply({ content: 'You don\'t have permissions to run this command', allowedMentions: { repliedUser: false } });
+                const tagName = args[2];
+                if (!tagName) return message.reply({ content: `Usage: ${PREFIX}tag delete <name>`, allowedMentions: { repliedUser: false } });
+                if (!tags.has(tagName)) return message.reply({ content: `Tag not found: \`${tagName}\``, allowedMentions: { repliedUser: false } });
+                
+                tags.delete(tagName);
+                return message.reply({ content: `Tag \`${tagName}\` deleted!`, allowedMentions: { repliedUser: false } });
+            }
+            
+            if (subCommand === 'info') {
+                const tagName = args[2];
+                if (!tagName) return message.reply({ content: `Usage: ${PREFIX}tag info <name>`, allowedMentions: { repliedUser: false } });
+                const tag = tags.get(tagName);
+                if (!tag) return message.reply({ content: `Tag not found: \`${tagName}\``, allowedMentions: { repliedUser: false } });
+                
+                return message.reply({ content: `Tag: \`${tagName}\`\nCreator: <@${tag.authorId}>`, allowedMentions: { repliedUser: false } });
+            }
+            
+            // Default: fetch tag content
+            const tagName = args[1];
+            if (!tagName) return message.reply({ content: `Usage: ${PREFIX}tag <name>`, allowedMentions: { repliedUser: false } });
+            const tag = tags.get(tagName);
+            if (!tag) return message.reply({ content: `Tag not found: \`${tagName}\``, allowedMentions: { repliedUser: false } });
+            return message.reply({ content: tag.content, allowedMentions: { repliedUser: false } });
         }
 
         if (command === 'remind') {
             const timeStr = args[1];
             const reason = args.slice(2).join(' ');
-            if (!timeStr || !reason) return message.reply(`Usage: ${PREFIX}remind <time> <reason> (e.g., 10s, 5m)`);
+            if (!timeStr || !reason) return message.reply({ content: `Usage: ${PREFIX}remind <time> <reason> (e.g., 10s, 5m)`, allowedMentions: { repliedUser: false } });
             const ms = parseTime(timeStr);
-            if (!ms) return message.reply('Invalid time format. Use 10s, 5m, 1h, etc.');
+            if (!ms) return message.reply({ content: 'Invalid time format. Use 10s, 5m, 1h, etc.', allowedMentions: { repliedUser: false } });
             
-            message.reply(`Got it! I will remind you about "${reason}" in ${timeStr}.`);
+            message.reply({ content: `Got it! I will remind you about "${reason}" in ${timeStr}.`, allowedMentions: { repliedUser: false } });
             setTimeout(() => {
-                message.reply(`<@${message.author.id}> reminder from ${timeStr} ago reason: ${reason}`);
+                message.reply({ content: `<@${message.author.id}> reminder from ${timeStr} ago reason: ${reason}`, allowedMentions: { repliedUser: false } });
             }, ms);
             return;
         }
 
         if (command === 'setbotoffline') {
-            if (message.author.id !== OWNER_ID) return;
+            if (message.author.id !== OWNER_ID) return message.reply({ content: 'You don\'t have permissions to run this command', allowedMentions: { repliedUser: false } });
             isBotOffline = true;
-            return message.reply('Bot is now **OFFLINE**.');
+            return message.reply({ content: 'Bot is now **OFFLINE**.', allowedMentions: { repliedUser: false } });
         }
         if (command === 'setbotonline') {
-            if (message.author.id !== OWNER_ID) return;
+            if (message.author.id !== OWNER_ID) return message.reply({ content: 'You don\'t have permissions to run this command', allowedMentions: { repliedUser: false } });
             isBotOffline = false;
-            return message.reply('Bot is now **ONLINE**.');
+            return message.reply({ content: 'Bot is now **ONLINE**.', allowedMentions: { repliedUser: false } });
         }
 
         if (command === 'monitor') {
-            if (!isAuthorized(message)) return;
+            if (!isAuthorized(message)) return message.reply({ content: 'You don\'t have permissions to run this command', allowedMentions: { repliedUser: false } });
             const mentions = message.mentions.channels;
-            if (mentions.size === 0) return message.reply('Please mention at least one channel.');
+            if (mentions.size === 0) return message.reply({ content: 'Please mention at least one channel.', allowedMentions: { repliedUser: false } });
             mentions.forEach(channel => ignoredChannels.delete(channel.id));
-            return message.reply(`Now monitoring: ${mentions.map(c => `<#${c.id}>`).join(', ')}`);
+            return message.reply({ content: `Now monitoring: ${mentions.map(c => `<#${c.id}>`).join(', ')}`, allowedMentions: { repliedUser: false } });
         }
         if (command === 'ignore') {
-            if (!isAuthorized(message)) return;
+            if (!isAuthorized(message)) return message.reply({ content: 'You don\'t have permissions to run this command', allowedMentions: { repliedUser: false } });
             const mentions = message.mentions.channels;
-            if (mentions.size === 0) return message.reply('Please mention at least one channel.');
+            if (mentions.size === 0) return message.reply({ content: 'Please mention at least one channel.', allowedMentions: { repliedUser: false } });
             mentions.forEach(channel => ignoredChannels.add(channel.id));
-            return message.reply(`Now ignoring: ${mentions.map(c => `<#${c.id}>`).join(', ')}`);
+            return message.reply({ content: `Now ignoring: ${mentions.map(c => `<#${c.id}>`).join(', ')}`, allowedMentions: { repliedUser: false } });
         }
 
         if (commandBody.toLowerCase().startsWith('lock channel')) {
-            if (!isAuthorized(message)) return;
+            if (!isAuthorized(message)) return message.reply({ content: 'You don\'t have permissions to run this command', allowedMentions: { repliedUser: false } });
             const parts = commandBody.split('|').map(p => p.trim());
             const typeStr = parts[1]?.toLowerCase() || '';
             if (typeStr.includes('rare')) {
@@ -289,7 +354,12 @@ client.on('interactionCreate', async (interaction) => {
                     { name: 'lock channel | Rare ping', value: 'Manually trigger a Rare lock.' },
                     { name: 'lock channel | Regional Spawn', value: 'Manually trigger a Regional lock.' },
                     { name: 'lock channel | shinyhunt @user', value: 'Manually trigger a Shiny Hunt lock.' },
-                    { name: 'remind <time> <reason>', value: 'Set a reminder (e.g., 10s, 5m, 1h).' }
+                    { name: 'remind <time> <reason>', value: 'Set a reminder (e.g., 10s, 5m, 1h).' },
+                    { name: 'tag create <name> | <content>', value: 'Create a new tag.' },
+                    { name: 'tag edit <name> | <content>', value: 'Edit an existing tag (Author/Owner only).' },
+                    { name: 'tag delete <name>', value: 'Delete a tag (Owner only).' },
+                    { name: 'tag info <name>', value: 'View tag creator info.' },
+                    { name: 'tag <name>', value: 'Display tag content.' }
                 )
                 .setColor(0x00FFFF)
                 .setFooter({ text: 'Page 2/2' });
