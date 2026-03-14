@@ -146,7 +146,7 @@ client.on('messageCreate', async (message) => {
         if (command === 'help') {
             const page1 = new EmbedBuilder()
                 .setTitle('Hi, I am Nuoh!')
-                .setDescription(`I am WooperLand's spawn locking bot made by <@${OWNER_ID}>.\n\nI help manage spawns by locking channels when rare or shiny Pokémon appear, ensuring the right people get a chance to catch them.\n\n**Prefix:** \`${PREFIX}\` or mention me!`)
+                .setDescription(`I am WooperLand's spawn locking bot made by <@${OWNER_ID}>.\n\nI love locking spawns muheheh .\n\n**Prefix:** \`${PREFIX}\` or mention me!`)
                 .setColor(0x00FFFF)
                 .setFooter({ text: 'Page 1/2 • Click below for commands' });
 
